@@ -267,24 +267,55 @@ async function processRssFeeds(client) {
  */
 export async function startRssService(client) {
   log.info('RSSサービスを起動します');
-
+  
   try {
+    // RSSの設定を出力してデバッグ
+    const config = getConfig();
+    console.log('RSS設定:', JSON.stringify(config.rssConfig, null, 2));
+    log.debug('RSS設定:', JSON.stringify(config.rssConfig, null, 2));
+    
+    if (!config.rssConfig || config.rssConfig.length === 0) {
+      log.warn('RSS設定が見つかりません');
+      return false;
+    }
+    
+    // 各チャンネルのアクセス権限チェック
+    for (const feed of config.rssConfig) {
+      if (!feed.channels || feed.channels.length === 0) {
+        log.warn(`フィード ${feed.name} (${feed.url}) にチャンネルが設定されていません`);
+        console.warn(`フィード ${feed.name} (${feed.url}) にチャンネルが設定されていません`);
+        continue;
+      }
+      
+      for (const channelId of feed.channels) {
+        try {
+          const channel = await client.channels.fetch(channelId);
+          if (!channel) {
+            log.warn(`チャンネル ${channelId} が見つかりませんでした`);
+            console.warn(`チャンネル ${channelId} が見つかりませんでした`);
+          } else {
+            log.info(`チャンネル ${channelId} (${channel.name}) へのアクセスが確認されました`);
+          }
+        } catch (error) {
+          log.error(`チャンネル ${channelId} へのアクセスエラー: ${error.message}`);
+          console.error(`チャンネル ${channelId} へのアクセスエラー: ${error.message}`);
+        }
+      }
+    }
+
     // 初回のRSS処理を実行
     await processRssFeeds(client);
 
     // 定期実行のスケジュール設定 (10分ごとに実行)
     cron.schedule('*/10 * * * *', async () => {
+      log.info('定期実行: RSSフィードを処理します');
       await processRssFeeds(client);
     });
 
     log.info('RSSサービスが正常に起動しました');
-
     return true;
   } catch (error) {
     log.error(`RSSサービス起動エラー: ${error.message}`);
-    if (error.stack) {
-      log.error(`スタックトレース: ${error.stack}`);
-    }
     return false;
   }
 }
