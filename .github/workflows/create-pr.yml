@@ -14,7 +14,7 @@ jobs:
         run: |
           git checkout -b "feature/#${{ github.event.issue.number }}" master || exit 1
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit --allow-empty -m "feature start #${{ github.event.issue.number }}"
           git push origin "feature/#${{ github.event.issue.number }}"
 
