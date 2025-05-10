@@ -12,14 +12,11 @@ async function startBot() {
     // Discordクライアントを起動
     const client = await startDiscordClient();
     
-    // 明示的にRSSサービスを起動 - readyイベントに依存しない
-    log.info('RSSサービスを起動します...');
     try {
       await startRssService(client);
       log.info('RSSサービスが有効化されました');
     } catch (error) {
       log.error('RSSサービスの起動に失敗しました:', error);
-      console.error(error); // コンソールにも出力
     }
 
     log.info('起動処理が完了しました');

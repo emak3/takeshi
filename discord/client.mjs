@@ -33,9 +33,6 @@ export async function startDiscordClient() {
     // クライアントログイン
     await client.login(getConfig().token);
     
-    // readyイベントを待つ代わりに、ログイン後に直接処理
-    log.info(`準備完了: ${client.user.tag} としてログインしました`);
-    
     // 特別システムプランの読み込み
     await loadSpecialSystemPlan(client);
     

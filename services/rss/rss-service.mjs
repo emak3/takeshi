@@ -271,8 +271,6 @@ export async function startRssService(client) {
   try {
     // RSSの設定を出力してデバッグ
     const config = getConfig();
-    console.log('RSS設定:', JSON.stringify(config.rssConfig, null, 2));
-    log.debug('RSS設定:', JSON.stringify(config.rssConfig, null, 2));
     
     if (!config.rssConfig || config.rssConfig.length === 0) {
       log.warn('RSS設定が見つかりません');
@@ -283,7 +281,6 @@ export async function startRssService(client) {
     for (const feed of config.rssConfig) {
       if (!feed.channels || feed.channels.length === 0) {
         log.warn(`フィード ${feed.name} (${feed.url}) にチャンネルが設定されていません`);
-        console.warn(`フィード ${feed.name} (${feed.url}) にチャンネルが設定されていません`);
         continue;
       }
       
@@ -292,13 +289,11 @@ export async function startRssService(client) {
           const channel = await client.channels.fetch(channelId);
           if (!channel) {
             log.warn(`チャンネル ${channelId} が見つかりませんでした`);
-            console.warn(`チャンネル ${channelId} が見つかりませんでした`);
           } else {
             log.info(`チャンネル ${channelId} (${channel.name}) へのアクセスが確認されました`);
           }
         } catch (error) {
           log.error(`チャンネル ${channelId} へのアクセスエラー: ${error.message}`);
-          console.error(`チャンネル ${channelId} へのアクセスエラー: ${error.message}`);
         }
       }
     }
