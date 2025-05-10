@@ -80,18 +80,6 @@ export async function handleClaudeMessage(message) {
       return;
     }
     
-    // スレッド作成の準備
-    let thread = message.channel;
-    
-    // スレッド外のメッセージの場合、新しくスレッドを作成
-    if (!message.channel.isThread()) {
-      const threadName = prompt.substring(0, 10) || `${message.author.username} の会話`;
-      thread = await message.startThread({
-        name: threadName,
-        autoArchiveDuration: 60, // 60分でアーカイブ
-      });
-    }
-    
     // 会話履歴の初期化
     if (!conversationHistory[userId]) {
       conversationHistory[userId] = [];
@@ -104,8 +92,10 @@ export async function handleClaudeMessage(message) {
       conversationHistory[userId] = [{ role: 'user', content: prompt }];
     }
     
+    const replyTarget = message.channel;
+    
     // ローディングメッセージを送信
-    const loadingMessage = await thread.send('🤔 生成中...');
+    const loadingMessage = await replyTarget.send('🤔 生成中...');
     
     // メッセージに画像が添付されている場合
     if (message.attachments.size > 0) {
