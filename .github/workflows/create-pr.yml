@@ -1,0 +1,30 @@
+on:
+  issues:
+    types:
+      - opened
+
+jobs:
+  create_pr:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.issue.labels.*.id, 6059956609) }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: create branch
+        run: |
+          git checkout -b "feature/#${{ github.event.issue.number }}" main || exit 1
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "feature start #${{ github.event.issue.number }}"
+          git push origin "feature/#${{ github.event.issue.number }}"
+
+      - name: Create PR
+        if: ${{ steps.check_pr.outputs.count == '' }}
+        run: |
+          gh pr create \
+            --base main \
+            --assignee $GITHUB_ACTOR \
+            --title "#${{ github.event.issue.number }} ${{ github.event.issue.title }}" \
+            --body "Fixes #${{ github.event.issue.number }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
