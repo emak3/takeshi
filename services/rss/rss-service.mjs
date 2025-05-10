@@ -59,33 +59,67 @@ async function sendRssToWebhook(webhook, item, feed, faviconUrl, feedLink) {
       flags: MessageFlags.IsComponentsV2
     };
 
-    // アイコンURLがある場合は設定
+    // アイコンURLの処理を改善
     if (faviconUrl) {
       try {
-        // ファビコンのURLが有効かチェック
-        const faviconCheck = await axios.head(faviconUrl);
-        if (faviconCheck.status === 200 && 
-            faviconCheck.headers['content-type'] && 
-            faviconCheck.headers['content-type'].startsWith('image/')) {
-          webhookOptions.avatarURL = faviconUrl;
-        } else {
-          // Google Faviconサービスを代替として使用
-          const domain = extractDomain(feed.url) || extractDomain(feedLink);
-          webhookOptions.avatarURL = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
-        }
-      } catch (faviconError) {
-        // エラー時は代替アイコンを使用
+        // ファビコンURLのフォーマットチェック
+        let validIconUrl = faviconUrl;
+        
+        // GoogleのFaviconサービスを使用（サイズを大きくする）
         const domain = extractDomain(feed.url) || extractDomain(feedLink);
         if (domain) {
-          webhookOptions.avatarURL = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+          // サイズ128px指定で、pngフォーマットを要求
+          validIconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=128&ext=png`;
+          log.debug(`Google Favicon URL生成: ${validIconUrl}`);
+          
+          // 代替アプローチとしてclearbitのロゴAPIを試す（より高品質）
+          try {
+            const clearbitUrl = `https://logo.clearbit.com/${domain}?size=128`;
+            const clearbitCheck = await axios.head(clearbitUrl, { 
+              timeout: 3000,
+              validateStatus: function (status) {
+                return status < 500; // 500未満のステータスコードは成功とみなす
+              }
+            });
+            
+            if (clearbitCheck.status === 200) {
+              validIconUrl = clearbitUrl;
+              log.debug(`Clearbit Logo URL使用: ${validIconUrl}`);
+            }
+          } catch (clearbitError) {
+            log.debug(`Clearbit Logo取得失敗: ${clearbitError.message}`);
+          }
         }
+        
+        // webhookOptionsにアイコンURLを設定
+        webhookOptions.avatarURL = validIconUrl;
+        log.debug(`Webhook avatarURL設定: ${validIconUrl}`);
+      } catch (iconError) {
+        log.error(`アイコンURL処理エラー: ${iconError.message}`);
+        // エラー時は何も設定しない（Discordのデフォルトアイコンが使用される）
       }
     }
 
-    // メッセージ送信
-    await webhook.send(webhookOptions);
-    log.info(`RSS送信成功: ${item.title}`);
-
+    // メッセージ送信 - より詳細なエラーログ
+    try {
+      await webhook.send(webhookOptions);
+      log.info(`RSS送信成功: ${item.title}`);
+    } catch (webhookError) {
+      log.error(`Webhook送信エラー: ${webhookError.message}`);
+      // avatarURLが問題の場合、それを除いて再試行
+      if (webhookOptions.avatarURL) {
+        log.info(`avatarURLを削除して再試行します`);
+        delete webhookOptions.avatarURL;
+        try {
+          await webhook.send(webhookOptions);
+          log.info(`avatarURLなしでの送信成功: ${item.title}`);
+        } catch (retryError) {
+          throw retryError; // 再試行も失敗したら次のフォールバックへ
+        }
+      } else {
+        throw webhookError;
+      }
+    }
   } catch (error) {
     log.error(`RSS送信エラー: ${error.message}`);
 

@@ -52,70 +52,29 @@ export async function getFavicon(domain) {
     const mainDomain = removeSubdomain(domain);
     log.debug(`ドメイン変換: ${domain} → ${mainDomain}`);
     
-    // 複数の候補からファビコンを見つける
-    const candidates = [
-      `https://${mainDomain}/favicon.ico`,
-      `https://${mainDomain}/favicon.png`,
-      `https://${mainDomain}/apple-touch-icon.png`,
-      `https://${mainDomain}/apple-touch-icon-precomposed.png`
-    ];
-    
-    // 各候補を順番に試す
-    for (const url of candidates) {
-      try {
-        const response = await axios.head(url);
-        if (response.status === 200 && 
-            response.headers['content-type'] && 
-            response.headers['content-type'].startsWith('image/')) {
-          return url;
-        }
-      } catch (error) {
-        // この候補は失敗、次へ
-        continue;
-      }
-    }
-    
-    // HTMLからファビコンリンクを検索
+    // Clearbitのロゴ取得を最初に試みる（最も高品質）
     try {
-      const response = await axios.get(`https://${mainDomain}`);
-      const html = response.data;
-      
-      // link要素からファビコンを検索
-      const linkRegex = /<link[^>]*rel=["'](?:shortcut icon|icon|apple-touch-icon|apple-touch-icon-precomposed)["'][^>]*href=["']([^"']+)["'][^>]*>/gi;
-      let match;
-      while ((match = linkRegex.exec(html)) !== null) {
-        let iconUrl = match[1];
-        
-        // 相対URLを絶対URLに変換
-        if (iconUrl.startsWith('/')) {
-          iconUrl = `https://${mainDomain}${iconUrl}`;
-        } else if (!iconUrl.startsWith('http')) {
-          iconUrl = `https://${mainDomain}/${iconUrl}`;
-        }
-        
-        // 取得したURLが有効かチェック
-        try {
-          const iconCheck = await axios.head(iconUrl);
-          if (iconCheck.status === 200 && 
-              iconCheck.headers['content-type'] && 
-              iconCheck.headers['content-type'].startsWith('image/')) {
-            return iconUrl;
-          }
-        } catch (error) {
-          continue;
-        }
+      const clearbitUrl = `https://logo.clearbit.com/${mainDomain}?size=128`;
+      const response = await axios.head(clearbitUrl, { timeout: 3000 });
+      if (response.status === 200) {
+        log.debug(`Clearbitからロゴを取得: ${clearbitUrl}`);
+        return clearbitUrl;
       }
-    } catch (error) {
-      log.debug(`HTMLからのファビコン検索失敗: ${mainDomain}`);
+    } catch (clearbitError) {
+      log.debug(`Clearbitロゴ取得エラー: ${clearbitError.message}`);
     }
     
-    // すべての候補が失敗した場合はGoogleのサービスを使用
-    return `https://www.google.com/s2/favicons?domain=${mainDomain}&sz=128`;
+    // Googleのファビコンサービスを使用（サイズとフォーマットを指定）
+    // サイズを128pxに、フォーマットをPNGに指定
+    const googleFaviconUrl = `https://www.google.com/s2/favicons?domain=${mainDomain}&sz=128&ext=png`;
+    log.debug(`Google Faviconサービス使用: ${googleFaviconUrl}`);
+    return googleFaviconUrl;
     
+    /* 以下の従来のファビコン取得方法は信頼性が低いため省略 */
   } catch (error) {
     log.error(`ファビコン取得エラー(${domain}):`, error);
     // エラーでもGoogle Faviconサービスは返す
     const mainDomain = removeSubdomain(domain);
-    return `https://www.google.com/s2/favicons?domain=${mainDomain}&sz=128`;
+    return `https://www.google.com/s2/favicons?domain=${mainDomain}&sz=128&ext=png`;
   }
 }
