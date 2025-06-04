@@ -38,7 +38,7 @@ export async function startDiscordClient() {
     
     // ステータス設定
     client.user.setActivity({
-      name: `Claude AI Bot`,
+      name: `競馬速報`,
       type: ActivityType.Playing
     });
     
