@@ -1,6 +1,5 @@
 import fetch from 'node-fetch';
 import pdfParse from 'pdf-parse';
-import { convert } from 'pdf2pic';
 import sharp from 'sharp';
 import { initLogger } from '../../utils/logger.mjs';
 
@@ -12,20 +11,11 @@ const log = initLogger();
 const PDF_CONFIG = {
     // 最大ページ数（トークン節約のため）
     MAX_PAGES: 10,
-    // 画像変換時の設定
-    IMAGE_OPTIONS: {
-        density: 150,           // DPI
-        saveFilename: "page",
-        savePath: "/tmp",
-        format: "png",
-        width: 1024,           // 最大幅
-        height: 1448           // 最大高さ（A4比率）
-    },
     // 圧縮設定
     COMPRESSION: {
         quality: 80,           // JPEG品質
         maxWidth: 1024,        // 最大幅
-        maxHeight: 1448        // 最大高さ
+        maxHeight: 1448        // 最大高さ（A4比率）
     }
 };
 
@@ -79,13 +69,18 @@ async function extractTextFromPdf(pdfBuffer) {
 }
 
 /**
- * PDFを画像に変換する
+ * PDFを画像に変換する（pdf2pic使用）
+ * 注意: この機能は pdf2pic ライブラリが正常に動作する場合のみ使用
  * @param {Buffer} pdfBuffer PDFバッファ
  * @param {boolean} compress 圧縮するかどうか
  * @returns {Promise<Array<string>|null>} Base64画像の配列
  */
-async function convertPdfToImages(pdfBuffer, compress = true) {
+async function convertPdfToImagesWithPdf2Pic(pdfBuffer, compress = true) {
     try {
+        // 動的インポートでpdf2picを読み込み
+        const pdf2picModule = await import('pdf2pic');
+        const pdf2pic = pdf2picModule.default || pdf2picModule;
+
         // 一時ファイルとしてPDFを保存
         const fs = await import('fs');
         const path = await import('path');
@@ -99,14 +94,27 @@ async function convertPdfToImages(pdfBuffer, compress = true) {
         try {
             // PDF2PICの設定
             const options = {
-                ...PDF_CONFIG.IMAGE_OPTIONS,
-                savePath: tempDir
+                density: 150,
+                saveFilename: "page",
+                savePath: tempDir,
+                format: "png",
+                width: 1024,
+                height: 1448
             };
+
+            let convert;
+            if (pdf2pic.convert) {
+                convert = pdf2pic.convert;
+            } else if (typeof pdf2pic === 'function') {
+                convert = pdf2pic;
+            } else {
+                throw new Error('pdf2pic.convert が見つかりません');
+            }
 
             const convertOptions = convert.fromPath(tempPdfPath, options);
 
             // 最大ページ数まで変換
-            const pages = Math.min(PDF_CONFIG.MAX_PAGES, 10); // 安全のため10ページまで
+            const pages = Math.min(PDF_CONFIG.MAX_PAGES, 5); // 安全のため5ページまでに制限
             const imageBuffers = [];
 
             for (let pageNum = 1; pageNum <= pages; pageNum++) {
@@ -144,8 +152,42 @@ async function convertPdfToImages(pdfBuffer, compress = true) {
         }
 
     } catch (error) {
-        log.error('PDF画像変換エラー:', error);
+        log.error('PDF画像変換エラー (pdf2pic):', error);
         return null;
+    }
+}
+
+/**
+ * 代替方法: PDFの最初のページのみを処理する簡易版
+ * @param {Buffer} pdfBuffer PDFバッファ
+ * @returns {Promise<string|null>} PDFの基本情報
+ */
+async function createPdfSummary(pdfBuffer) {
+    try {
+        const data = await pdfParse(pdfBuffer);
+
+        const summary = {
+            pages: data.numpages,
+            textLength: data.text ? data.text.length : 0,
+            hasText: data.text && data.text.trim().length > 100,
+            preview: data.text ? data.text.substring(0, 500).trim() + '...' : 'テキストが検出されませんでした'
+        };
+
+        const summaryText = `
+=== PDFファイル情報 ===
+ページ数: ${summary.pages}
+テキスト量: ${summary.textLength}文字
+テキスト有無: ${summary.hasText ? 'あり' : 'なし'}
+
+=== 内容プレビュー ===
+${summary.preview}
+=== プレビュー終了 ===
+`;
+
+        return summaryText;
+    } catch (error) {
+        log.error('PDF概要作成エラー:', error);
+        return 'PDFの処理中にエラーが発生しました。';
     }
 }
 
@@ -210,17 +252,46 @@ export async function processMessagePdfs(attachments, useImages = false, compres
                 });
                 log.info(`PDFからテキストを抽出しました: ${attachment.name}`);
             } else if (useImages) {
-                // テキスト抽出が不十分な場合は画像変換
-                log.info(`テキスト抽出が不十分なため画像変換を実行します: ${attachment.name}`);
-                const images = await convertPdfToImages(pdfBuffer, compress);
+                // テキスト抽出が不十分な場合
+                log.info(`テキスト抽出が不十分です: ${attachment.name}`);
 
-                if (images && images.length > 0) {
-                    results.images.push({
+                try {
+                    // pdf2picによる画像変換を試行
+                    const images = await convertPdfToImagesWithPdf2Pic(pdfBuffer, compress);
+
+                    if (images && images.length > 0) {
+                        results.images.push({
+                            filename: attachment.name,
+                            images: images
+                        });
+                        log.info(`PDFを${images.length}ページの画像に変換しました: ${attachment.name}`);
+                    } else {
+                        // 画像変換も失敗した場合は概要を作成
+                        const summary = await createPdfSummary(pdfBuffer);
+                        results.texts.push({
+                            filename: attachment.name,
+                            content: summary
+                        });
+                        log.info(`PDF概要を作成しました: ${attachment.name}`);
+                    }
+                } catch (imageError) {
+                    log.warn(`PDF画像変換に失敗、概要作成に切り替え: ${attachment.name}`, imageError.message);
+
+                    // フォールバック: PDF概要を作成
+                    const summary = await createPdfSummary(pdfBuffer);
+                    results.texts.push({
                         filename: attachment.name,
-                        images: images
+                        content: summary
                     });
-                    log.info(`PDFを${images.length}ページの画像に変換しました: ${attachment.name}`);
                 }
+            } else {
+                // 画像変換を使用しない場合は概要を作成
+                const summary = await createPdfSummary(pdfBuffer);
+                results.texts.push({
+                    filename: attachment.name,
+                    content: summary
+                });
+                log.info(`PDF概要を作成しました: ${attachment.name}`);
             }
         }
 
